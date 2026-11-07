@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Video</AssemblyName>
+    <RootNamespace>Video</RootNamespace>
+    <Product>影片紀錄</Product>
+    <Version>1.0.0</Version>
+    <StartupObject>Video.Program</StartupObject>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <!-- 只保留英文與繁體中文的語系資源，省掉其他語言資料夾 -->
+    <SatelliteResourceLanguages>en;zh-Hant</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!--
+    Release 版不論在哪個資料夾建置都產生一模一樣的 Video.dll（不含建置路徑、不帶 pdb、不帶 commit 編號），
+    這樣本機建置的檔案就和 GitHub Actions 打包的相同，可以先在本機確認不會被 Windows
+    「智慧型應用程式控制」擋下（它是依檔案內容判斷）。
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <DebugType>none</DebugType>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 自訂 Main（Program.cs）：確保只開一個視窗 -->
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
+
+</Project>

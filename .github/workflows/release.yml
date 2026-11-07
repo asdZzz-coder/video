@@ -1,0 +1,44 @@
+name: Release
+
+# 推送 v* 標籤（例如 v1.0.1）就會自動測試、產生安裝檔 Video-Setup.msi 並發佈到 GitHub Releases。
+# 已安裝的程式下次開啟時會偵測到新版本並詢問是否更新。
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 用 global.json 指定的 SDK 版本，打包出來的 Video.dll 才會和本機建置的一模一樣
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # 自動測試沒過就不發佈
+      - name: Test
+        run: dotnet test video.Tests/Video.Tests.csproj
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          dotnet build installer/Video.Installer.wixproj -c Release -p:AppVersion=$version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item installer/bin/x64/Release/Video-Setup.msi | Select-Object Name, Length
+          # 印出雜湊值，方便和本機建置的檔案比對
+          Get-ChildItem installer/obj/publish/Video.dll, installer/obj/publish/Video.exe | Get-FileHash | Format-Table Hash, Path -AutoSize | Out-String -Width 300
+
+      - name: Upload to GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $notes = "下載 Video-Setup.msi 執行即可安裝或更新。已安裝的程式開啟時會詢問是否更新，影片資料不受影響。"
+          gh release create "${{ github.ref_name }}" installer/bin/x64/Release/Video-Setup.msi --title "${{ github.ref_name }}" --notes $notes

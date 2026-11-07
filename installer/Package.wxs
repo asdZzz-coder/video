@@ -1,0 +1,72 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!--
+    只裝給目前使用者，不需要系統管理員權限：
+    程式放在 %LocalAppData%\Programs\Video，建立開始功能表與桌面捷徑，
+    並登記到「設定 → 應用程式」以便解除安裝。
+    影片資料在 %AppData%\Video，解除安裝不會刪除。
+    UpgradeCode 不能改，改了新版就不會取代舊版。
+  -->
+  <Package Name="影片紀錄"
+           Manufacturer="asdZzz-coder"
+           Version="$(AppVersion)"
+           UpgradeCode="5F2C7A14-9B3E-4D61-A8C2-3E7B1D904F6A"
+           Scope="perUser"
+           Codepage="65001"
+           Language="1028">
+
+    <MajorUpgrade DowngradeErrorMessage="已經安裝了較新版本的影片紀錄。" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="..\video\Assets\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsDir" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Video" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Main">
+      <!-- 使用者設定檔裡的元件要用 HKCU 登錄值當 KeyPath（ICE38） -->
+      <Component Id="AppExe" Directory="INSTALLFOLDER" Guid="C41E8D27-6A5F-4B93-92D1-7F0A3C68E1B5">
+        <File Id="VideoExe" Source="$(PublishDir)Video.exe" />
+        <RegistryValue Root="HKCU" Key="Software\asdZzz-coder\Video" Name="InstallDir"
+                       Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+        <RemoveFolder Id="RemoveProgramsDir" Directory="ProgramsDir" On="uninstall" />
+      </Component>
+
+      <!-- 其餘的 .NET 執行環境與相依檔案 -->
+      <Files Directory="INSTALLFOLDER" Include="$(PublishDir)**">
+        <Exclude Files="$(PublishDir)Video.exe" />
+        <Exclude Files="$(PublishDir)*.pdb" />
+      </Files>
+
+      <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder" Guid="2B96F0D3-14C7-4E8A-B65F-D83A0E7C4912">
+        <Shortcut Id="StartMenuLink" Name="影片紀錄" Description="記下片名、演員和性質，隨時找得到"
+                  Target="[INSTALLFOLDER]Video.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\asdZzz-coder\Video" Name="StartMenuShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="E7A35C18-F2D9-47B6-8C04-61B9D2F7A3E0">
+        <Shortcut Id="DesktopLink" Name="影片紀錄" Description="記下片名、演員和性質，隨時找得到"
+                  Target="[INSTALLFOLDER]Video.exe" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\asdZzz-coder\Video" Name="DesktopShortcut"
+                       Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </Feature>
+
+    <!-- 安裝完成後自動開啟程式 -->
+    <CustomAction Id="LaunchApp" Directory="INSTALLFOLDER" ExeCommand="&quot;[INSTALLFOLDER]Video.exe&quot;"
+                  Return="asyncNoWait" Impersonate="yes" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT Installed AND NOT REMOVE AND UILevel &gt;= 4" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

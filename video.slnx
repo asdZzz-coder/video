@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="video/Video.csproj" />
+  <Project Path="video.Tests/Video.Tests.csproj" />
+</Solution>

@@ -1,0 +1,28 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <!--
+    產生單一安裝檔 Video-Setup.msi：
+      dotnet build installer/Video.Installer.wixproj -c Release -p:AppVersion=1.0.0
+    會先把程式發佈成資料夾（內含 .NET，對方電腦不用另外安裝），再包進 msi。
+    不放進 video.slnx：平常建置和跑測試不需要每次都打包。
+  -->
+  <PropertyGroup>
+    <OutputName>Video-Setup</OutputName>
+    <Platform>x64</Platform>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <!--
+      不跑 ICE 驗證：只裝給目前使用者、程式放在 %LocalAppData% 的安裝檔，
+      ICE38/ICE64 會要求每個檔案都用 HKCU 登錄值當 KeyPath，對數百個執行環境檔案不實際。
+    -->
+    <SuppressValidation>true</SuppressValidation>
+    <AppVersion>1.0.0</AppVersion>
+    <PublishDir>$(MSBuildProjectDirectory)\obj\publish\</PublishDir>
+    <DefineConstants>PublishDir=$(PublishDir);AppVersion=$(AppVersion)</DefineConstants>
+  </PropertyGroup>
+
+  <Target Name="PublishApp" BeforeTargets="BeforeBuild">
+    <RemoveDir Directories="$(PublishDir)" />
+    <Exec Command="dotnet publish &quot;$(MSBuildProjectDirectory)\..\video\Video.csproj&quot; -c Release -r win-x64 --self-contained true -o &quot;$(PublishDir.TrimEnd('\'))&quot; -p:Version=$(AppVersion) -nologo" />
+  </Target>
+
+</Project>

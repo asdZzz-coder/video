@@ -1,0 +1,240 @@
+<Window x:Class="Video.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="影片紀錄" Height="760" Width="1240" MinHeight="520" MinWidth="900"
+        WindowStartupLocation="CenterScreen" Style="{StaticResource AppWindow}"
+        Loaded="Window_Loaded" PreviewKeyDown="Window_PreviewKeyDown">
+    <DockPanel>
+        <!-- ===== 標題列 ===== -->
+        <Grid DockPanel.Dock="Top" Margin="24,18,24,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <Border Width="40" Height="40" CornerRadius="12" Background="{StaticResource AccentGradient}">
+                    <TextBlock Text="&#xE714;" Style="{StaticResource Icon}" FontSize="19" Foreground="White"
+                               HorizontalAlignment="Center" />
+                </Border>
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="影片紀錄" FontFamily="{StaticResource DisplayFont}" FontSize="19" FontWeight="SemiBold" />
+                    <TextBlock Text="記下片名、演員和性質，隨時找得到" FontSize="12" Foreground="{StaticResource MutedBrush}" />
+                </StackPanel>
+            </StackPanel>
+            <Button Grid.Column="1" x:Name="ManageButton" Style="{StaticResource GhostButton}" Click="Manage_Click"
+                    VerticalAlignment="Center" Margin="0,0,8,0" ToolTip="新增、改名、刪除性質，整理演員名字">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE8EC;" Style="{StaticResource ButtonIcon}" />
+                    <TextBlock Text="管理性質與演員" />
+                </StackPanel>
+            </Button>
+            <Button Grid.Column="2" x:Name="NewButton" Style="{StaticResource PrimaryButton}" Click="New_Click"
+                    VerticalAlignment="Center" ToolTip="新增一部影片（Ctrl+N）">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE710;" Style="{StaticResource ButtonIcon}" FontSize="12" />
+                    <TextBlock Text="新增影片" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <!-- ===== 狀態列：訊息、版本與更新 ===== -->
+        <Grid DockPanel.Dock="Bottom" Margin="24,0,18,10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="MessageText" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                       FontSize="12.5" Foreground="{StaticResource MutedBrush}" />
+            <TextBlock Grid.Column="1" x:Name="StatusText" VerticalAlignment="Center" FontSize="12.5"
+                       Foreground="{StaticResource MutedBrush}" Margin="12,0,4,0" />
+            <Button Grid.Column="2" Style="{StaticResource GhostButton}" Click="CheckUpdate_Click" Padding="10,6">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE895;" Style="{StaticResource ButtonIcon}" FontSize="12" />
+                    <TextBlock Text="檢查更新" FontSize="12.5" />
+                </StackPanel>
+            </Button>
+        </Grid>
+
+        <Grid Margin="24,0,24,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="14" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- ===== 搜尋：打字就會即時篩選 ===== -->
+            <Grid>
+                <TextBox x:Name="SearchBox" Style="{StaticResource BigSearchBox}"
+                         Tag="搜尋片名、演員、性質…　空格分開可以打好幾個關鍵字"
+                         TextChanged="SearchBox_TextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown"
+                         ToolTip="Ctrl+F 回到搜尋框、Esc 清除、Enter 或 ↓ 跳到結果" />
+                <Button x:Name="ClearSearchButton" Style="{StaticResource ClearButton}" Click="ClearSearch_Click"
+                        HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
+                        Visibility="Collapsed" ToolTip="清除搜尋（Esc）">
+                    <TextBlock Text="&#xE711;" Style="{StaticResource Icon}" FontSize="12" />
+                </Button>
+            </Grid>
+
+            <Grid Grid.Row="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="270" />
+                    <ColumnDefinition Width="16" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- ===== 左：點一下就篩選 ===== -->
+                <Border Style="{StaticResource Card}" Padding="14,16">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock Text="性質" Style="{StaticResource SectionTitle}" Margin="4,0,0,10" />
+                            <ScrollViewer MaxHeight="230" VerticalScrollBarVisibility="Auto" Focusable="False">
+                                <ItemsControl x:Name="GenreFacets" Focusable="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <ToggleButton Style="{StaticResource FacetChip}" Tag="{Binding Name}"
+                                                          IsChecked="{Binding IsSelected, Mode=OneTime}" IsEnabled="{Binding CanClick, Mode=OneTime}"
+                                                          Click="GenreFacet_Click" Content="{Binding Display, Mode=OneTime}"
+                                                          ToolTip="{Binding Display, Mode=OneTime}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <TextBlock x:Name="GenreEmptyText" Style="{StaticResource HintText}" Margin="4,0,4,8"
+                                       Text="新增影片時打上性質，就會出現在這裡。" />
+                            <Border Height="1" Background="{StaticResource LineBrush}" Margin="0,8,0,14" />
+                            <TextBlock Text="演員" Style="{StaticResource SectionTitle}" Margin="4,0,0,10" />
+                        </StackPanel>
+                        <Grid>
+                            <ItemsControl x:Name="ActorFacets" Focusable="False" VirtualizingPanel.IsVirtualizing="True"
+                                          ScrollViewer.CanContentScroll="True">
+                                <ItemsControl.Template>
+                                    <ControlTemplate TargetType="ItemsControl">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+                                            <ItemsPresenter />
+                                        </ScrollViewer>
+                                    </ControlTemplate>
+                                </ItemsControl.Template>
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <ToggleButton Style="{StaticResource FacetRow}" Tag="{Binding Name}"
+                                                      IsChecked="{Binding IsSelected, Mode=OneTime}" Click="ActorFacet_Click"
+                                                      ToolTip="{Binding Name, Mode=OneTime}">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Name, Mode=OneTime}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Count, Mode=OneTime}" FontSize="12" FontWeight="Normal"
+                                                           Foreground="{StaticResource MutedBrush}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                            </Grid>
+                                        </ToggleButton>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock x:Name="ActorEmptyText" Style="{StaticResource HintText}" Margin="4,0,4,0"
+                                       VerticalAlignment="Top" Text="目前沒有符合的演員。" />
+                        </Grid>
+                    </DockPanel>
+                </Border>
+
+                <!-- ===== 右：影片清單 ===== -->
+                <Border Grid.Column="2" Style="{StaticResource Card}" Padding="14,16,14,10">
+                    <DockPanel>
+                        <Grid DockPanel.Dock="Top" Margin="4,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="影片" Style="{StaticResource SectionTitle}" />
+                            <Border Grid.Column="1" Style="{StaticResource Chip}" Margin="8,0,0,0">
+                                <TextBlock x:Name="CountText" Style="{StaticResource ChipText}" />
+                            </Border>
+                            <Button Grid.Column="2" x:Name="ClearFilterButton" Style="{StaticResource GhostButton}"
+                                    Click="ClearFilter_Click" Margin="6,0,0,0" Padding="10,5" Visibility="Collapsed"
+                                    ToolTip="清除搜尋文字和左邊選的條件">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE711;" Style="{StaticResource ButtonIcon}" FontSize="10" />
+                                    <TextBlock Text="清除篩選" FontSize="12.5" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="4" x:Name="EditButton" Click="Edit_Click" Margin="8,0,0,0" Padding="12,6"
+                                    IsEnabled="False" ToolTip="修改選取的影片（Enter 或連按兩下）">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE70F;" Style="{StaticResource ButtonIcon}" FontSize="12" />
+                                    <TextBlock Text="修改" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="5" x:Name="DeleteButton" Style="{StaticResource DangerButton}" Click="Delete_Click"
+                                    Margin="8,0,0,0" Padding="12,6" IsEnabled="False"
+                                    ToolTip="刪除選取的影片（Delete）；按住 Ctrl 或 Shift 可以選好幾部">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE74D;" Style="{StaticResource ButtonIcon}" FontSize="12" />
+                                    <TextBlock Text="刪除" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        <Grid>
+                            <DataGrid x:Name="VideoGrid" IsReadOnly="True" SelectionMode="Extended" SelectionUnit="FullRow"
+                                      RowHeight="NaN" MinRowHeight="40" CanUserReorderColumns="False"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      SelectionChanged="VideoGrid_SelectionChanged"
+                                      MouseDoubleClick="VideoGrid_MouseDoubleClick"
+                                      PreviewKeyDown="VideoGrid_PreviewKeyDown">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn x:Name="TitleColumn" Header="片名" Binding="{Binding Title}" Width="3*" MinWidth="120"
+                                                        ElementStyle="{StaticResource WrapStrongCell}" />
+                                    <DataGridTextColumn Header="演員" Binding="{Binding ActorsText}" Width="2*" MinWidth="100"
+                                                        ElementStyle="{StaticResource WrapCell}" />
+                                    <DataGridTemplateColumn Header="性質" SortMemberPath="GenresText" Width="3*" MinWidth="120">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <ItemsControl ItemsSource="{Binding Genres}" Focusable="False" Margin="0,4">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <WrapPanel />
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Style="{StaticResource TagChip}">
+                                                                <TextBlock Text="{Binding}" Style="{StaticResource TagChipText}" />
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn x:Name="CreatedColumn" Header="新增日期" Binding="{Binding CreatedAt, StringFormat={}{0:yyyy/MM/dd}}"
+                                                        SortMemberPath="CreatedAt" Width="104" MinWidth="104"
+                                                        ElementStyle="{StaticResource MutedCell}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel x:Name="EmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed">
+                                <TextBlock x:Name="EmptyText" Style="{StaticResource EmptyText}" Margin="24,24,24,8"
+                                           Foreground="{StaticResource MutedBrush}" />
+                            </StackPanel>
+                        </Grid>
+                    </DockPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>
