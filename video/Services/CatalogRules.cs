@@ -12,21 +12,25 @@ namespace Video.Services
 
         /// <summary>
         /// 新增（existing 是 null）或修改一部影片。打的名字和現有的一樣時（不計全半形、大小寫、空白），
-        /// 一律用現有的寫法，同一個人才不會變成兩筆。新的性質會自動加進性質清單。
+        /// 一律用現有的寫法，同一個人才不會變成兩筆。新的性質會自動加進性質清單；
+        /// newParents 有寫的新性質會加成那個大項底下的小項。影片上的性質依大項、小項的順序排。
         /// </summary>
         public static VideoEntry Upsert(AppData data, VideoEntry? existing, string title,
-            IEnumerable<string> actors, IEnumerable<string> genres, DateTime now)
+            IEnumerable<string> actors, IEnumerable<string> genres, DateTime now,
+            IReadOnlyDictionary<string, string>? newParents = null)
         {
             var knownActors = AllActors(data);
             var cleanActors = CleanNames(actors, knownActors);
             var cleanGenres = CleanNames(genres, data.Genres);
 
-            var missing = cleanGenres.Where(g => !data.Genres.Contains(g, NameComparer.Instance)).ToList();
-            if (missing.Count > 0)
+            foreach (var genre in cleanGenres.Where(g => !data.Genres.Contains(g, NameComparer.Instance)))
             {
-                data.Genres.AddRange(missing);
-                SortGenres(data);
+                var parent = newParents?.FirstOrDefault(p => NameRules.Same(p.Key, genre)).Value;
+                AddGenre(data, genre, parent);
             }
+
+            var order = GenreTree.Ordered(data);
+            cleanGenres = cleanGenres.OrderBy(g => order.FindIndex(o => NameRules.Same(o, g))).ToList();
 
             var entry = existing ?? new VideoEntry { CreatedAt = now };
             entry.Title = NameRules.Clean(title);
@@ -69,32 +73,101 @@ namespace Video.Services
                 .ToList();
         }
 
-        /// <summary>新增性質；已經有了就回傳 false。</summary>
-        public static bool AddGenre(AppData data, string name)
+        /// <summary>
+        /// 新增性質；已經有了就回傳 false。parent 有填就加成它底下的小項
+        /// （大項還沒有的話一起新增；填的是小項就改放到它的大項底下，因為只有兩層）。
+        /// </summary>
+        public static bool AddGenre(AppData data, string name, string? parent = null)
         {
             var clean = NameRules.Clean(name);
             if (clean.Length == 0 || data.Genres.Contains(clean, NameComparer.Instance)) return false;
+
+            string? root = null;
+            var cleanParent = NameRules.Clean(parent);
+            if (cleanParent.Length > 0 && !NameRules.Same(cleanParent, clean))
+            {
+                if (!data.Genres.Contains(cleanParent, NameComparer.Instance)) data.Genres.Add(cleanParent);
+                root = GenreTree.RootOf(data, Canonical(cleanParent, data.Genres));
+            }
+
             data.Genres.Add(clean);
+            if (root != null) data.GenreParents[clean] = root;
             SortGenres(data);
             return true;
         }
 
-        /// <summary>性質改名；新名字已經有了就是合併。回傳受影響的影片數。</summary>
+        /// <summary>
+        /// 改變性質所屬的大項；parent 是 null 或空白就變成大項。
+        /// 不能移的時候回傳原因（給使用者看），成功回傳 null。
+        /// </summary>
+        public static string? MoveGenre(AppData data, string name, string? parent)
+        {
+            var genre = data.Genres.FirstOrDefault(g => NameRules.Same(g, name));
+            if (genre == null) return $"找不到性質「{name}」。";
+
+            if (string.IsNullOrWhiteSpace(parent))
+            {
+                data.GenreParents.Remove(genre);
+                return null;
+            }
+
+            var target = data.Genres.FirstOrDefault(g => NameRules.Same(g, parent));
+            if (target == null) return $"找不到大項「{parent}」。";
+            if (NameRules.Same(target, genre)) return "不能放在自己底下。";
+            if (GenreTree.IsSub(data, target)) return $"「{target}」是小項，小項底下不能再分。";
+            if (GenreTree.HasChildren(data, genre))
+                return $"「{genre}」底下還有小項，要先把小項移走或刪除，才能把它放到別的大項底下。";
+
+            data.GenreParents.Remove(genre);
+            data.GenreParents[genre] = target;
+            return null;
+        }
+
+        /// <summary>
+        /// 性質改名；新名字已經有了就是合併。回傳受影響的影片數。
+        /// 大項改名時底下的小項跟著走；合併時小項移到合併後的大項底下。
+        /// </summary>
         public static int RenameGenre(AppData data, string oldName, string newName)
         {
             var clean = NameRules.Clean(newName);
-            data.Genres.RemoveAll(g => NameRules.Same(g, oldName));
-            if (!data.Genres.Contains(clean, NameComparer.Instance)) data.Genres.Add(clean);
-            SortGenres(data);
+            var old = Canonical(oldName, data.Genres);
+            var children = GenreTree.Children(data, old);
+            var target = data.Genres.FirstOrDefault(g => NameRules.Same(g, clean) && !NameRules.Same(g, old));
 
-            var target = Canonical(clean, data.Genres);
-            return data.Videos.Count(v => ReplaceName(v.Genres, oldName, target));
+            if (target == null)
+            {
+                var parent = GenreTree.ParentOf(data, old);
+                data.Genres.RemoveAll(g => NameRules.Same(g, old));
+                data.Genres.Add(clean);
+                data.GenreParents.Remove(old);
+                if (parent != null) data.GenreParents[clean] = parent;
+                foreach (var child in children) data.GenreParents[child] = clean;
+                target = clean;
+            }
+            else
+            {
+                // 合併到自己的小項時，那個小項升成大項，其他小項改掛到它底下
+                var targetParent = GenreTree.ParentOf(data, target);
+                var newRoot = NameRules.Same(targetParent, old) ? target : targetParent ?? target;
+                if (NameRules.Same(targetParent, old)) data.GenreParents.Remove(target);
+                data.GenreParents.Remove(old);
+                foreach (var child in children.Where(c => !NameRules.Same(c, target)))
+                    data.GenreParents[child] = newRoot;
+                data.Genres.RemoveAll(g => NameRules.Same(g, old));
+            }
+
+            SortGenres(data);
+            GenreTree.Normalize(data);
+            return data.Videos.Count(v => ReplaceName(v.Genres, old, target));
         }
 
-        /// <summary>刪除性質，影片本身留著。回傳受影響的影片數。</summary>
+        /// <summary>刪除性質，影片本身留著；大項底下的小項會變成大項。回傳受影響的影片數。</summary>
         public static int RemoveGenre(AppData data, string name)
         {
+            foreach (var child in GenreTree.Children(data, name)) data.GenreParents.Remove(child);
+            data.GenreParents.Remove(name);
             data.Genres.RemoveAll(g => NameRules.Same(g, name));
+            GenreTree.Normalize(data);
             return data.Videos.Count(v => v.Genres.RemoveAll(g => NameRules.Same(g, name)) > 0);
         }
 

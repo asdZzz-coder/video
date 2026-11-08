@@ -29,6 +29,8 @@ namespace Video
         public MainWindow(AppData data)
         {
             _data = data;
+            _filter.Catalog = data;
+            Resources.Add("GenreLabel", new GenreLabelConverter(data));
             InitializeComponent();
 
             Title = _updater.IsInstalled ? $"{AppTitle} v{_updater.CurrentVersion}" : $"{AppTitle}（開發版）";
@@ -82,10 +84,11 @@ namespace Video
         /// <summary>左邊的數字跟著目前的結果變，一眼看到還能再怎麼縮小範圍。</summary>
         private void BuildFacets(List<VideoEntry> results)
         {
-            var genreCounts = SearchRules.Count(results, v => v.Genres);
-            GenreFacets.ItemsSource = _data.Genres
-                .Select(g => new FacetItem(g, genreCounts.GetValueOrDefault(g), _filter.Genres.Contains(g)))
-                .ToList();
+            var genreCounts = SearchRules.CountGenres(results, _data);
+            GenreFacets.ItemsSource = GenreBlock<FacetItem>.Build(
+                _data.Genres.Select(g => new FacetItem(g, genreCounts.GetValueOrDefault(g), _filter.Genres.Contains(g))),
+                item => item.Name,
+                item => GenreTree.ParentOf(_data, item.Name));
             GenreEmptyText.Visibility = _data.Genres.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
             var actorCounts = SearchRules.Count(results, v => v.Actors);
@@ -192,9 +195,9 @@ namespace Video
         private void OpenEditor(VideoEntry? video)
         {
             VideoEntry? last = null;
-            var editor = new EditVideoWindow(_data, video, (existing, title, actors, genres) =>
+            var editor = new EditVideoWindow(_data, video, (existing, title, actors, genres, newParents) =>
             {
-                last = CatalogRules.Upsert(_data, existing, title, actors, genres, DateTime.Now);
+                last = CatalogRules.Upsert(_data, existing, title, actors, genres, DateTime.Now, newParents);
                 var saved = Save();
                 // 新增的存檔失敗時先拿掉，視窗會留著讓人重按儲存，不然會多出一筆
                 if (!saved && existing == null)

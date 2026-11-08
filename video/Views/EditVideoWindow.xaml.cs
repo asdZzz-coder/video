@@ -12,7 +12,8 @@ namespace Video.Views
     public partial class EditVideoWindow : Window
     {
         /// <summary>實際存檔由主視窗處理；回傳 false 代表存檔失敗，視窗要留著。</summary>
-        public delegate bool SaveHandler(VideoEntry? existing, string title, IReadOnlyList<string> actors, IReadOnlyList<string> genres);
+        public delegate bool SaveHandler(VideoEntry? existing, string title, IReadOnlyList<string> actors, IReadOnlyList<string> genres,
+            IReadOnlyDictionary<string, string> newParents);
 
         private const int MaxSuggestions = 8;
 
@@ -20,7 +21,7 @@ namespace Video.Views
         private readonly VideoEntry? _existing;
         private readonly SaveHandler _save;
         private readonly ObservableCollection<string> _actors = new();
-        private readonly ObservableCollection<GenreOption> _genres = new();
+        private readonly List<GenreOption> _genres = new();
         private List<string> _knownActors = new();
         private string _snapshot = "";
         private bool _allowClose;
@@ -34,7 +35,6 @@ namespace Video.Views
             InitializeComponent();
 
             ActorChips.ItemsSource = _actors;
-            GenreChips.ItemsSource = _genres;
 
             Title = existing == null ? "新增影片" : "修改影片";
             SaveNextButton.Visibility = existing == null ? Visibility.Visible : Visibility.Collapsed;
@@ -60,7 +60,9 @@ namespace Video.Views
 
             _genres.Clear();
             foreach (var genre in _data.Genres)
-                _genres.Add(new GenreOption(genre, video?.Genres.Contains(genre, NameComparer.Instance) == true));
+                _genres.Add(new GenreOption(genre, GenreTree.ParentOf(_data, genre),
+                    video?.Genres.Contains(genre, NameComparer.Instance) == true, isNew: false));
+            ShowGenres();
 
             _knownActors = CatalogRules.AllActors(_data);
             HideSuggestions();
@@ -196,26 +198,64 @@ namespace Video.Views
 
         // ===== 性質 =====
 
-        /// <summary>把輸入框裡的字選成性質：現有的就選取，沒有的就新增一個選項。</summary>
+        private void ShowGenres() =>
+            GenreChips.ItemsSource = GenreBlock<GenreOption>.Build(_genres, g => g.Name, g => g.Parent);
+
+        /// <summary>
+        /// 把輸入框裡的字選成性質：現有的就選取，沒有的就新增一個選項。
+        /// 打「大項/小項」會把小項加在那個大項底下（大項還沒有就一起新增，但不會選取大項本身）。
+        /// </summary>
         private void CommitGenreInput()
         {
+            var added = false;
             foreach (var name in NameRules.SplitNames(GenreInput.Text))
             {
-                var option = _genres.FirstOrDefault(g => NameRules.Same(g.Name, name));
+                var option = FindGenre(name);
                 if (option != null)
                 {
                     option.IsSelected = true;
+                    continue;
+                }
+
+                if (GenreTree.SplitPath(name) is not { } path)
+                {
+                    _genres.Add(new GenreOption(name, null, isSelected: true, isNew: true));
+                    added = true;
+                    continue;
+                }
+
+                var (parentName, childName) = path;
+                var parent = FindGenre(parentName);
+                if (parent?.Parent != null)
+                {
+                    MessageText.Text = $"「{parent.Name}」是小項，小項底下不能再分。";
+                    continue;
+                }
+                if (parent == null)
+                {
+                    parent = new GenreOption(parentName, null, isSelected: false, isNew: true);
+                    _genres.Add(parent);
+                }
+
+                var child = FindGenre(childName);
+                if (child != null)
+                {
+                    // 已經有這個性質就直接選，不搬家（要搬到別的大項請用「管理性質與演員」）
+                    child.IsSelected = true;
+                    if (!NameRules.Same(child.Parent, parent.Name))
+                        MessageText.Text = $"「{child.Name}」已經有了，直接選取；要換大項請到「管理性質與演員」。";
                 }
                 else
                 {
-                    // 依顯示順序插入，和存檔後看到的順序一致
-                    var index = 0;
-                    while (index < _genres.Count && CatalogRules.DisplayOrder.Compare(_genres[index].Name, name) < 0) index++;
-                    _genres.Insert(index, new GenreOption(name, true));
+                    _genres.Add(new GenreOption(childName, parent.Name, isSelected: true, isNew: true));
                 }
+                added = true;
             }
             GenreInput.Clear();
+            if (added) ShowGenres();
         }
+
+        private GenreOption? FindGenre(string name) => _genres.FirstOrDefault(g => NameRules.Same(g.Name, name));
 
         private void GenreInput_PreviewKeyDown(object sender, KeyEventArgs e)
         {
@@ -256,7 +296,10 @@ namespace Video.Views
                 }
             }
 
-            return _save(_existing, title, _actors.ToList(), _genres.Where(g => g.IsSelected).Select(g => g.Name).ToList());
+            // 新打的小項要告訴存檔的地方掛在哪個大項底下
+            var newParents = _genres.Where(g => g.IsNew && g.Parent != null)
+                .ToDictionary(g => g.Name, g => g.Parent!, NameComparer.Instance);
+            return _save(_existing, title, _actors.ToList(), _genres.Where(g => g.IsSelected).Select(g => g.Name).ToList(), newParents);
         }
 
         private void CloseSaved()
@@ -327,13 +370,21 @@ namespace Video.Views
         {
             private bool _isSelected;
 
-            public GenreOption(string name, bool isSelected)
+            public GenreOption(string name, string? parent, bool isSelected, bool isNew)
             {
                 Name = name;
+                Parent = parent;
+                IsNew = isNew;
                 _isSelected = isSelected;
             }
 
             public string Name { get; }
+
+            /// <summary>所屬的大項；本身是大項就是 null。</summary>
+            public string? Parent { get; }
+
+            /// <summary>這次才打的，還沒存進性質清單。</summary>
+            public bool IsNew { get; }
 
             public bool IsSelected
             {

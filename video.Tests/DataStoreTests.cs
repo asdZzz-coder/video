@@ -72,5 +72,41 @@ namespace Video.Tests
             Assert.Equal(2, data.Genres.Count);
             Assert.Contains("動作", data.Genres);
         }
+
+        [Fact]
+        public void Version1File_AllGenresAreRoots()
+        {
+            // 1.0 版的檔案沒有 GenreParents
+            File.WriteAllText(File1, """{ "Videos": [ { "Title": "一", "Genres": [ "動作" ] } ], "Genres": [ "動作", "喜劇" ] }""");
+
+            var data = DataStore.Load(File1);
+
+            Assert.Empty(data.GenreParents);
+            Assert.Equal(2, GenreTree.Roots(data).Count);
+        }
+
+        [Fact]
+        public void SubGenres_SurviveSaveAndLoad_WithLooseMatching()
+        {
+            var data = new AppData();
+            CatalogRules.AddGenre(data, "Action");
+            CatalogRules.AddGenre(data, "Gun", "Action");
+            DataStore.Save(data, File1);
+
+            var loaded = DataStore.Load(File1);
+
+            Assert.Equal("Action", GenreTree.ParentOf(loaded, "gun")); // 讀回來的對照表也不分大小寫
+        }
+
+        [Fact]
+        public void HandEditedParents_AreCleanedOnLoad()
+        {
+            File.WriteAllText(File1, """{ "Genres": [ "動作", "槍戰" ], "GenreParents": { "槍戰": "動作", "沒有": "動作" } }""");
+
+            var data = DataStore.Load(File1);
+
+            Assert.Equal("動作", GenreTree.ParentOf(data, "槍戰"));
+            Assert.Single(data.GenreParents);
+        }
     }
 }

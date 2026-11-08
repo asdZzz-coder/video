@@ -58,6 +58,7 @@ namespace Video.Services
                     .Distinct(NameComparer.Instance)
                     .ToList();
                 CatalogRules.SortGenres(data);
+                GenreTree.Normalize(data); // 1.0 版的檔案沒有大項對照，全部當大項
                 return data;
             }
             catch (JsonException ex)

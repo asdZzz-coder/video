@@ -6,12 +6,15 @@ using Video.Services;
 
 namespace Video.Views
 {
-    /// <summary>新增、改名、刪除性質，整理演員名字（打錯字、同一個人兩種寫法）。</summary>
+    /// <summary>
+    /// 新增、改名、刪除性質，調整性質的大項、小項；整理演員名字（打錯字、同一個人兩種寫法）。
+    /// </summary>
     public partial class ManageWindow : Window
     {
         private readonly AppData _data;
         private readonly Action<string> _changed;
         private bool _ready;
+        private bool _syncing; // 程式自己改下拉選單時不要當成使用者在移動
 
         public ManageWindow(AppData data, Action<string> changed)
         {
@@ -42,50 +45,143 @@ namespace Video.Views
         /// <summary>重新列出清單，並選回 keep 這個名字（如果還在）。</summary>
         private void Reload(string? keep)
         {
-            var counts = SearchRules.Count(_data.Videos, v => IsGenre ? v.Genres : v.Actors);
-            var names = IsGenre ? _data.Genres : CatalogRules.AllActors(_data);
+            var rows = IsGenre ? GenreRows() : ActorRows();
             var key = NameRules.Key(FilterBox.Text);
-            var rows = names
-                .Where(n => key.Length == 0 || NameRules.Key(n).Contains(key, StringComparison.Ordinal))
-                .Select(n => new Row(n, counts.GetValueOrDefault(n)))
-                .ToList();
+            if (key.Length > 0) rows = rows.Where(r => r.Matches(key, rows)).ToList();
+            if (IsGenre) FillNewParentBox(); // 要在選取之前，選取時會用到
 
             NameList.ItemsSource = rows;
             NameList.SelectedItem = rows.FirstOrDefault(r => NameRules.Same(r.Name, keep));
 
-            EmptyText.Text = names.Count == 0
-                ? (IsGenre ? "還沒有性質，可以在右邊新增。" : "還沒有演員。新增影片時填上演員，就會出現在這裡。")
-                : "沒有符合的名稱。";
+            var hasAny = IsGenre ? _data.Genres.Count > 0 : _data.Videos.Any(v => v.Actors.Count > 0);
+            EmptyText.Text = hasAny
+                ? "沒有符合的名稱。"
+                : (IsGenre ? "還沒有性質，可以在右邊新增。" : "還沒有演員。新增影片時填上演員，就會出現在這裡。");
             EmptyText.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
-            // 演員是從影片來的，不用單獨新增
-            AddButton.Visibility = IsGenre ? Visibility.Visible : Visibility.Collapsed;
+            AddCard.Visibility = IsGenre ? Visibility.Visible : Visibility.Collapsed;
+            ParentPanel.Visibility = IsGenre ? Visibility.Visible : Visibility.Collapsed;
             UpdateButtons();
+        }
+
+        /// <summary>每個大項後面接著它的小項；大項的數字包含小項的影片。</summary>
+        private List<Row> GenreRows()
+        {
+            var counts = SearchRules.CountGenres(_data.Videos, _data);
+            var direct = SearchRules.Count(_data.Videos, v => v.Genres);
+            return GenreTree.Ordered(_data).Select(g =>
+            {
+                var parent = GenreTree.ParentOf(_data, g);
+                var level = parent != null ? RowLevel.Sub : GenreTree.HasChildren(_data, g) ? RowLevel.Group : RowLevel.Plain;
+                return new Row(g, counts.GetValueOrDefault(g), direct.GetValueOrDefault(g), parent, level);
+            }).ToList();
+        }
+
+        private List<Row> ActorRows()
+        {
+            var counts = SearchRules.Count(_data.Videos, v => v.Actors);
+            return CatalogRules.AllActors(_data)
+                .Select(a => new Row(a, counts.GetValueOrDefault(a), counts.GetValueOrDefault(a), null, RowLevel.Plain))
+                .ToList();
         }
 
         private void NameList_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (NameList.SelectedItem is Row row) NameBox.Text = row.Name;
-            else if (!NameBox.IsKeyboardFocused) NameBox.Text = "";
+            var row = NameList.SelectedItem as Row;
+            NameBox.Text = row?.Name ?? "";
+            if (IsGenre)
+            {
+                FillParentBox(row);
+                // 新增時預設放在同一個大項底下，連續加小項比較快
+                if (row != null) SelectChoice(NewParentBox, GenreTree.RootOf(_data, row.Name));
+            }
             UpdateButtons();
         }
 
         private void UpdateButtons()
         {
             var row = NameList.SelectedItem as Row;
+            NameBox.IsEnabled = row != null;
             RenameButton.IsEnabled = row != null;
             DeleteButton.IsEnabled = row != null;
-            DeleteButton.Content = row == null ? "刪除" : $"刪除（{row.Count} 部影片使用中）";
-            HintText.Text = row == null
-                ? $"在左邊選一個{KindName}，可以改名或刪除。"
-                : "改成已經有的名稱就會合併成同一個。";
+            ParentBox.IsEnabled = row != null;
+            DeleteButton.Content = row == null ? "刪除" : $"刪除（{row.DirectCount} 部影片使用中）";
+
+            if (row == null)
+                HintText.Text = IsGenre
+                    ? "在左邊選一個性質，可以改名、換大項或刪除。"
+                    : "在左邊選一位演員，可以改名或刪除。";
+            else if (row.Level == RowLevel.Group)
+                HintText.Text = "這是大項，底下有小項。改名時小項會跟著；刪除時小項會變成大項。";
+            else
+                HintText.Text = "改成已經有的名稱就會合併成同一個。";
         }
+
+        // ===== 所屬大項 =====
+
+        private sealed record Choice(string? Name, string Display)
+        {
+            public override string ToString() => Display; // 下拉選單和無障礙工具讀到的文字
+        }
+
+        private List<Choice> RootChoices(string? excluding) =>
+            GenreTree.Roots(_data)
+                .Where(r => !NameRules.Same(r, excluding))
+                .Select(r => new Choice(r, r))
+                .Prepend(new Choice(null, "（沒有，本身就是大項）"))
+                .ToList();
+
+        private void FillParentBox(Row? row)
+        {
+            _syncing = true;
+            ParentBox.ItemsSource = RootChoices(row?.Name);
+            SelectChoice(ParentBox, row?.Parent);
+            _syncing = false;
+        }
+
+        private void FillNewParentBox()
+        {
+            var current = (NewParentBox.SelectedItem as Choice)?.Name;
+            NewParentBox.ItemsSource = RootChoices(null);
+            SelectChoice(NewParentBox, current);
+        }
+
+        private static void SelectChoice(ComboBox box, string? name)
+        {
+            if (box.ItemsSource is not List<Choice> choices) return;
+            box.SelectedItem = choices.FirstOrDefault(c => NameRules.Same(c.Name, name)) ?? choices[0];
+        }
+
+        private void ParentBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_syncing || !_ready || NameList.SelectedItem is not Row row || ParentBox.SelectedItem is not Choice choice) return;
+            if (NameRules.Same(choice.Name, row.Parent)) return;
+
+            var error = CatalogRules.MoveGenre(_data, row.Name, choice.Name);
+            if (error != null)
+            {
+                Warn(error);
+                FillParentBox(row); // 選單改回原本的大項
+                return;
+            }
+
+            _changed(choice.Name == null ? $"「{row.Name}」改成大項" : $"已把「{row.Name}」放到「{choice.Name}」底下");
+            Reload(row.Name);
+        }
+
+        // ===== 新增、改名、刪除 =====
 
         private void NameBox_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key != Key.Enter) return;
-            if (NameList.SelectedItem != null) Rename();
-            else if (IsGenre) Add();
+            Rename();
+            e.Handled = true;
+        }
+
+        private void NewNameBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter) return;
+            Add();
             e.Handled = true;
         }
 
@@ -95,22 +191,23 @@ namespace Video.Views
 
         private void Add()
         {
-            if (!TryReadName(out var name)) return;
-            if (!CatalogRules.AddGenre(_data, name))
+            if (!TryReadName(NewNameBox, out var name)) return;
+            var parent = (NewParentBox.SelectedItem as Choice)?.Name;
+            if (!CatalogRules.AddGenre(_data, name, parent))
             {
-                Warn($"已經有「{CatalogRules.Canonical(name, _data.Genres)}」這個性質了。");
+                Warn($"已經有「{CatalogRules.Canonical(name, _data.Genres)}」這個性質了。", NewNameBox);
                 return;
             }
             FilterBox.Text = "";
-            _changed($"已新增性質「{name}」");
+            _changed(parent == null ? $"已新增性質「{name}」" : $"已在「{parent}」底下新增「{name}」");
             Reload(name);
-            NameBox.Focus();
-            NameBox.SelectAll();
+            NewNameBox.Clear();
+            NewNameBox.Focus();
         }
 
         private void Rename()
         {
-            if (NameList.SelectedItem is not Row row || !TryReadName(out var name) || name == row.Name) return;
+            if (NameList.SelectedItem is not Row row || !TryReadName(NameBox, out var name) || name == row.Name) return;
 
             var existing = (IsGenre ? _data.Genres : CatalogRules.AllActors(_data))
                 .FirstOrDefault(n => NameRules.Same(n, name) && !NameRules.Same(n, row.Name));
@@ -133,10 +230,20 @@ namespace Video.Views
         {
             if (NameList.SelectedItem is not Row row) return;
 
-            var question = row.Count > 0
-                ? $"確定要刪除{KindName}「{row.Name}」？\n會從 {row.Count} 部影片上移除這個{KindName}，影片本身不會被刪除。"
-                : $"確定要刪除{KindName}「{row.Name}」？";
-            if (MessageBox.Show(this, question, Title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)
+            var lines = new List<string>();
+            if (row.Level == RowLevel.Group)
+            {
+                lines.Add($"確定要刪除大項「{row.Name}」？");
+                lines.Add($"底下的 {GenreTree.Children(_data, row.Name).Count} 個小項會變成大項，不會被刪除。");
+            }
+            else
+            {
+                lines.Add($"確定要刪除{KindName}「{row.Name}」？");
+            }
+            if (row.DirectCount > 0)
+                lines.Add($"會從 {row.DirectCount} 部影片上移除「{row.Name}」，影片本身不會被刪除。");
+
+            if (MessageBox.Show(this, string.Join("\n", lines), Title, MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)
                 != MessageBoxResult.Yes) return;
 
             var affected = IsGenre
@@ -147,39 +254,63 @@ namespace Video.Views
             Reload(null);
         }
 
-        private bool TryReadName(out string name)
+        private bool TryReadName(TextBox box, out string name)
         {
-            name = NameRules.Clean(NameBox.Text);
+            name = NameRules.Clean(box.Text);
             if (name.Length == 0)
             {
-                Warn("請先輸入名稱。");
+                Warn("請先輸入名稱。", box);
                 return false;
             }
             if (NameRules.HasSeparator(name))
             {
-                Warn("名稱不能有頓號、逗號或分號，這些符號是用來分隔多個名字的。");
+                Warn("名稱不能有頓號、逗號或分號，這些符號是用來分隔多個名字的。", box);
+                return false;
+            }
+            if (IsGenre && name.IndexOfAny(GenreTree.PathSeparators) >= 0)
+            {
+                Warn("性質名稱不能有「/」，「/」是用來分開大項和小項的。要放在大項底下，請用下面的「所屬大項」選。", box);
                 return false;
             }
             return true;
         }
 
-        private void Warn(string message)
+        private void Warn(string message, TextBox? focus = null)
         {
             MessageBox.Show(this, message, Title, MessageBoxButton.OK, MessageBoxImage.Information);
-            NameBox.Focus();
+            (focus ?? NameBox).Focus();
         }
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.Escape)
+            // 下拉選單打開時 Esc 只收起選單
+            if (e.Key == Key.Escape && !ParentBox.IsDropDownOpen && !NewParentBox.IsDropDownOpen)
             {
                 Close();
                 e.Handled = true;
             }
         }
 
-        private sealed record Row(string Name, int Count)
+        public enum RowLevel
         {
+            /// <summary>沒有小項的大項（或演員）。</summary>
+            Plain,
+            /// <summary>底下有小項的大項。</summary>
+            Group,
+            /// <summary>小項。</summary>
+            Sub,
+        }
+
+        /// <summary>清單的一列。Count 是顯示的數字（大項包含小項），DirectCount 是直接標了這個名字的影片數。</summary>
+        private sealed record Row(string Name, int Count, int DirectCount, string? Parent, RowLevel Level)
+        {
+            /// <summary>篩選：自己符合、所屬大項符合、或底下有小項符合，都列出來，才看得出在哪一區。</summary>
+            public bool Matches(string key, IEnumerable<Row> all) =>
+                Hit(Name, key) || Hit(Parent, key) || all.Any(r => NameRules.Same(r.Parent, Name) && Hit(r.Name, key));
+
+            private static bool Hit(string? text, string key) =>
+                text != null && NameRules.Key(text).Contains(key, StringComparison.Ordinal);
+
             public override string ToString() => Name;
         }
     }

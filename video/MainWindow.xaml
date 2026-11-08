@@ -89,19 +89,44 @@
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Top">
                             <TextBlock Text="性質" Style="{StaticResource SectionTitle}" Margin="4,0,0,10" />
-                            <ScrollViewer MaxHeight="230" VerticalScrollBarVisibility="Auto" Focusable="False">
+                            <!-- 有小項的大項自成一區，小項縮排在下面；沒有小項的大項排在最後 -->
+                            <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto" Focusable="False">
                                 <ItemsControl x:Name="GenreFacets" Focusable="False">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <ToggleButton Style="{StaticResource FacetChip}" Tag="{Binding Name}"
-                                                          IsChecked="{Binding IsSelected, Mode=OneTime}" IsEnabled="{Binding CanClick, Mode=OneTime}"
-                                                          Click="GenreFacet_Click" Content="{Binding Display, Mode=OneTime}"
-                                                          ToolTip="{Binding Display, Mode=OneTime}" />
+                                            <StackPanel>
+                                                <ToggleButton x:Name="RootChip" Style="{StaticResource FacetChip}" HorizontalAlignment="Left" FontWeight="SemiBold" Visibility="Collapsed"
+                                                              DataContext="{Binding Root}" Tag="{Binding Name}"
+                                                              IsChecked="{Binding IsSelected, Mode=OneTime}" IsEnabled="{Binding CanClick, Mode=OneTime}"
+                                                              Click="GenreFacet_Click" Content="{Binding Display, Mode=OneTime}"
+                                                              ToolTip="{Binding Display, Mode=OneTime}" />
+                                                <Border x:Name="Children" Margin="0,0,0,4">
+                                                    <ItemsControl ItemsSource="{Binding Items}" Focusable="False">
+                                                        <ItemsControl.ItemsPanel>
+                                                            <ItemsPanelTemplate>
+                                                                <WrapPanel />
+                                                            </ItemsPanelTemplate>
+                                                        </ItemsControl.ItemsPanel>
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <ToggleButton Style="{StaticResource FacetChip}" Tag="{Binding Name}"
+                                                                              IsChecked="{Binding IsSelected, Mode=OneTime}" IsEnabled="{Binding CanClick, Mode=OneTime}"
+                                                                              Click="GenreFacet_Click" Content="{Binding Display, Mode=OneTime}"
+                                                                              ToolTip="{Binding Display, Mode=OneTime}" />
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+                                                </Border>
+                                            </StackPanel>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding HasRoot}" Value="True">
+                                                    <Setter TargetName="RootChip" Property="Visibility" Value="Visible" />
+                                                    <Setter TargetName="Children" Property="Margin" Value="14,0,0,6" />
+                                                    <Setter TargetName="Children" Property="BorderThickness" Value="2,0,0,0" />
+                                                    <Setter TargetName="Children" Property="BorderBrush" Value="{StaticResource LineBrush}" />
+                                                    <Setter TargetName="Children" Property="Padding" Value="10,0,0,0" />
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -214,7 +239,7 @@
                                                     <ItemsControl.ItemTemplate>
                                                         <DataTemplate>
                                                             <Border Style="{StaticResource TagChip}">
-                                                                <TextBlock Text="{Binding}" Style="{StaticResource TagChipText}" />
+                                                                <TextBlock Text="{Binding Converter={StaticResource GenreLabel}}" Style="{StaticResource TagChipText}" />
                                                             </Border>
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
