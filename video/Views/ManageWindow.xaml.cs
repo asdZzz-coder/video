@@ -15,11 +15,14 @@ namespace Video.Views
         private readonly Action<string> _changed;
         private bool _ready;
         private bool _syncing; // 程式自己改下拉選單時不要當成使用者在移動
+        private readonly bool _startAdding;
 
-        public ManageWindow(AppData data, Action<string> changed)
+        /// <param name="startAdding">true：一打開就把游標放在「新增性質」，從主畫面的「新增」按鈕進來時用。</param>
+        public ManageWindow(AppData data, Action<string> changed, bool startAdding = false)
         {
             _data = data;
             _changed = changed;
+            _startAdding = startAdding;
             InitializeComponent();
             _ready = true;
             Reload(null);
@@ -28,7 +31,11 @@ namespace Video.Views
         private bool IsGenre => GenreTab.IsChecked == true;
         private string KindName => IsGenre ? "性質" : "演員";
 
-        private void Window_Loaded(object sender, RoutedEventArgs e) => FilterBox.Focus();
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (_startAdding) NewNameBox.Focus();
+            else FilterBox.Focus();
+        }
 
         private void Tab_Checked(object sender, RoutedEventArgs e)
         {
@@ -124,17 +131,19 @@ namespace Video.Views
             public override string ToString() => Display; // 下拉選單和無障礙工具讀到的文字
         }
 
-        private List<Choice> RootChoices(string? excluding) =>
+        /// <summary>大項的選項；withNone 時第一項是「沒有」（用來把小項改成大項）。</summary>
+        private List<Choice> RootChoices(string? excluding, bool withNone) =>
             GenreTree.Roots(_data)
                 .Where(r => !NameRules.Same(r, excluding))
                 .Select(r => new Choice(r, r))
                 .Prepend(new Choice(null, "（沒有，本身就是大項）"))
+                .Skip(withNone ? 0 : 1)
                 .ToList();
 
         private void FillParentBox(Row? row)
         {
             _syncing = true;
-            ParentBox.ItemsSource = RootChoices(row?.Name);
+            ParentBox.ItemsSource = RootChoices(row?.Name, withNone: true);
             SelectChoice(ParentBox, row?.Parent);
             _syncing = false;
         }
@@ -142,14 +151,18 @@ namespace Video.Views
         private void FillNewParentBox()
         {
             var current = (NewParentBox.SelectedItem as Choice)?.Name;
-            NewParentBox.ItemsSource = RootChoices(null);
+            var choices = RootChoices(null, withNone: false);
+            NewParentBox.ItemsSource = choices;
+            // 還沒有大項時不能加小項，直接說要先做什麼
+            NewParentBox.IsEnabled = AddSubButton.IsEnabled = choices.Count > 0;
+            NoRootText.Visibility = choices.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
             SelectChoice(NewParentBox, current);
         }
 
         private static void SelectChoice(ComboBox box, string? name)
         {
             if (box.ItemsSource is not List<Choice> choices) return;
-            box.SelectedItem = choices.FirstOrDefault(c => NameRules.Same(c.Name, name)) ?? choices[0];
+            box.SelectedItem = choices.FirstOrDefault(c => NameRules.Same(c.Name, name)) ?? choices.FirstOrDefault();
         }
 
         private void ParentBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -181,25 +194,31 @@ namespace Video.Views
         private void NewNameBox_PreviewKeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key != Key.Enter) return;
-            Add();
+            Add(null); // Enter：新增成大項
             e.Handled = true;
         }
 
-        private void Add_Click(object sender, RoutedEventArgs e) => Add();
+        private void AddRoot_Click(object sender, RoutedEventArgs e) => Add(null);
+
+        private void AddSub_Click(object sender, RoutedEventArgs e)
+        {
+            if (NewParentBox.SelectedItem is Choice { Name: { } parent }) Add(parent);
+            else Warn("還沒有大項，請先新增一個大項。", NewNameBox);
+        }
 
         private void Rename_Click(object sender, RoutedEventArgs e) => Rename();
 
-        private void Add()
+        /// <summary>新增性質；parent 是 null 就是大項。</summary>
+        private void Add(string? parent)
         {
             if (!TryReadName(NewNameBox, out var name)) return;
-            var parent = (NewParentBox.SelectedItem as Choice)?.Name;
             if (!CatalogRules.AddGenre(_data, name, parent))
             {
                 Warn($"已經有「{CatalogRules.Canonical(name, _data.Genres)}」這個性質了。", NewNameBox);
                 return;
             }
             FilterBox.Text = "";
-            _changed(parent == null ? $"已新增性質「{name}」" : $"已在「{parent}」底下新增「{name}」");
+            _changed(parent == null ? $"已新增大項「{name}」" : $"已在「{parent}」底下新增「{name}」");
             Reload(name);
             NewNameBox.Clear();
             NewNameBox.Focus();

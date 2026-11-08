@@ -233,7 +233,12 @@ namespace Video
             if (saved) ShowMessage(selected.Count == 1 ? $"已刪除「{selected[0].Title}」" : $"已刪除 {selected.Count} 部影片");
         }
 
-        private void Manage_Click(object sender, RoutedEventArgs e)
+        private void Manage_Click(object sender, RoutedEventArgs e) => OpenManage(startAdding: false);
+
+        /// <summary>左邊「性質」旁的「新增分類」：直接打開管理視窗，游標在新增性質的地方。</summary>
+        private void AddGenre_Click(object sender, RoutedEventArgs e) => OpenManage(startAdding: true);
+
+        private void OpenManage(bool startAdding)
         {
             var window = new ManageWindow(_data, message =>
             {
@@ -241,7 +246,7 @@ namespace Video
                 var saved = Save();
                 ApplyFilter();
                 if (saved) ShowMessage(message);
-            }) { Owner = this };
+            }, startAdding) { Owner = this };
             window.ShowDialog();
         }
 

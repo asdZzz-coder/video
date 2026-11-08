@@ -54,8 +54,8 @@
                 <DockPanel Margin="0,16,0,0">
                     <TextBlock DockPanel.Dock="Top" Text="性質（可以選好幾種，大項或小項都可以）" Style="{StaticResource FieldLabel}" />
                     <TextBox DockPanel.Dock="Bottom" x:Name="GenreInput" Margin="0,8,0,0" PreviewKeyDown="GenreInput_PreviewKeyDown"
-                             Style="{StaticResource SearchBox}" Tag="打性質按 Enter；打「大項/小項」可以直接加小項"
-                             ToolTip="現有的會選取，沒有的會新增。空白時再按一次 Enter 就是儲存" />
+                             Style="{StaticResource SearchBox}" Tag="打名稱按 Enter 新增大項；打「大項/小項」新增小項"
+                             ToolTip="現有的會選取，沒有的會新增。例如「動作」是大項，「動作/槍戰」是動作底下的小項。空白時再按一次 Enter 就是儲存" />
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
                         <!-- 和主畫面左邊一樣：有小項的大項自成一區，沒有小項的大項排在最後 -->
                         <ItemsControl x:Name="GenreChips" Focusable="False">
